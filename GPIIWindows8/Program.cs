@@ -20,7 +20,27 @@ namespace GPII
         private NotifyIcon notifyIcon;				            // the icon that sits in the system tray
         GPIIProximityListener p;
 
-        public GPIIApplicationContext()
+        public void LoginNotification() 
+        {
+            notifyIcon.BalloonTipTitle = "Logged in to GPII";
+            notifyIcon.BalloonTipText = "Applying settings for the user on your tag.";
+            notifyIcon.ShowBalloonTip(1000);
+        }
+
+        public void LogoutNotification()
+        {
+            notifyIcon.BalloonTipTitle = "Logged out of GPII";
+            notifyIcon.BalloonTipText = "Returning station to default settings.";
+            notifyIcon.ShowBalloonTip(1000);
+        }
+
+        /**
+         * Currently to start this from the command line you're going to give the directory, executable,
+         * and then any command line args necessary. So,
+         * 
+         * GPIIWindows8.exe "C:\Program Files (x86)\GPII\lgs-station" node.exe lgs_driver.js"
+         */
+        public GPIIApplicationContext(string[] args)
         {
             components = new System.ComponentModel.Container();
             notifyIcon = new NotifyIcon(components)
@@ -31,8 +51,16 @@ namespace GPII
                 Visible = true
             };
             notifyIcon.ContextMenuStrip.Items.Add(ToolStripMenuItemWithHandler("&Exit", exitItem_Click));
+
             p = new GPIIProximityListener();
+            if (args.Length == 3)
+            {
+                p.lgsWorkingDirectory = args[0];
+                p.lgsFileName = args[1];
+                p.lgsArguments = args[2];
+            }
             p.startLocalGPII();
+            p.applicationContext = this;
             p.InitializeProximityDevice();
         }
 
@@ -87,13 +115,18 @@ namespace GPII
 
         public Process localGPIIProcess = null;
 
+        public String lgsWorkingDirectory = "C:\\Program Files (x86)\\gpii\\windows";
+        public String lgsFileName = "grunt";
+        public String lgsArguments = "start";
+        public GPIIApplicationContext applicationContext;
+
         public void startLocalGPII()
         {
             ProcessStartInfo gpiiStartInfo = new ProcessStartInfo();
             gpiiStartInfo.WindowStyle = ProcessWindowStyle.Hidden;
-            gpiiStartInfo.WorkingDirectory = "C:\\Program Files (x86)\\gpii\\windows";
-            gpiiStartInfo.FileName = "grunt";
-            gpiiStartInfo.Arguments = "start";
+            gpiiStartInfo.WorkingDirectory = lgsWorkingDirectory;
+            gpiiStartInfo.FileName = lgsFileName;
+            gpiiStartInfo.Arguments = lgsArguments;
             localGPIIProcess = Process.Start(gpiiStartInfo);
         }
 
@@ -104,7 +137,7 @@ namespace GPII
             Application.SetCompatibleTextRenderingDefault(false);
             try
             {
-                var applicationContext = new GPIIApplicationContext();
+                var applicationContext = new GPIIApplicationContext(args);
                 Application.Run(applicationContext);
             }
             catch (Exception ex)
@@ -139,6 +172,8 @@ namespace GPII
             {
                 string s = client.DownloadString(url);
             }
+
+            applicationContext.LoginNotification();
         }
 
         public void gpiiLogout(string userToken)
@@ -149,6 +184,8 @@ namespace GPII
             {
                 string s = client.DownloadString(url);
             }
+
+            applicationContext.LogoutNotification();
         }
 
         public string readUserTokenFromTag(ProximityMessage message)
