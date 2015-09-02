@@ -70,7 +70,7 @@ namespace GPII
             }
             catch (System.TypeLoadException tle)
             {
-                MessageBox.Show("Got the proximity BAMM!");
+                // TODO Log something here in the system log.
             }
         }
 
