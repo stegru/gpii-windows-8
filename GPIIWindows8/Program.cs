@@ -4,13 +4,13 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Net;
-using Windows.Networking.Proximity;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Diagnostics;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Windows.Forms.Integration;
 using System.Reflection;
+
 
 namespace GPII
 {
@@ -19,19 +19,20 @@ namespace GPII
         private System.ComponentModel.IContainer components;	// a list of components to dispose when the context is disposed
         private NotifyIcon notifyIcon;				            // the icon that sits in the system tray
         GPIIProximityListener p;
+        GPIINodeManager nodeManager;
 
         public void LoginNotification() 
         {
             notifyIcon.BalloonTipTitle = "Logged in to GPII";
             notifyIcon.BalloonTipText = "Applying settings for the user on your tag.";
-            notifyIcon.ShowBalloonTip(1000);
+            notifyIcon.ShowBalloonTip(500);
         }
 
         public void LogoutNotification()
         {
             notifyIcon.BalloonTipTitle = "Logged out of GPII";
             notifyIcon.BalloonTipText = "Returning station to default settings.";
-            notifyIcon.ShowBalloonTip(1000);
+            notifyIcon.ShowBalloonTip(500);
         }
 
         /**
@@ -52,16 +53,25 @@ namespace GPII
             };
             notifyIcon.ContextMenuStrip.Items.Add(ToolStripMenuItemWithHandler("&Exit", exitItem_Click));
 
-            p = new GPIIProximityListener();
+            nodeManager = new GPIINodeManager();
             if (args.Length == 3)
             {
-                p.lgsWorkingDirectory = args[0];
-                p.lgsFileName = args[1];
-                p.lgsArguments = args[2];
+                nodeManager.lgsWorkingDirectory = args[0];
+                nodeManager.lgsFileName = args[1];
+                nodeManager.lgsArguments = args[2];
             }
-            p.startLocalGPII();
-            p.applicationContext = this;
-            p.InitializeProximityDevice();
+            nodeManager.startLocalGPII();
+
+            try 
+            {
+                p = new GPIIProximityListener();
+                p.applicationContext = this;
+                p.InitializeProximityDevice();
+            }
+            catch (System.TypeLoadException tle)
+            {
+                MessageBox.Show("Got the proximity BAMM!");
+            }
         }
 
         /// <summary>
@@ -75,7 +85,7 @@ namespace GPII
 
         private void exitItem_Click(object sender, EventArgs e)
         {
-            //p.localGPIIProcess.Kill();
+            // TODO Track our node processes adon't kill other peoples.
             foreach (Process proc in Process.GetProcessesByName("node"))
             {
                 proc.Kill();
@@ -106,30 +116,8 @@ namespace GPII
         }
     }
 
-    class GPIIProximityListener
+    class Program
     {
-        ProximityDevice proximityDevice;
-        bool loggedIn = false;
-        string loggedInUser = "";
-        DateTime lastTapTime = DateTime.UtcNow;
-
-        public Process localGPIIProcess = null;
-
-        public String lgsWorkingDirectory = "C:\\Program Files (x86)\\gpii\\windows";
-        public String lgsFileName = "grunt";
-        public String lgsArguments = "start";
-        public GPIIApplicationContext applicationContext;
-
-        public void startLocalGPII()
-        {
-            ProcessStartInfo gpiiStartInfo = new ProcessStartInfo();
-            gpiiStartInfo.WindowStyle = ProcessWindowStyle.Hidden;
-            gpiiStartInfo.WorkingDirectory = lgsWorkingDirectory;
-            gpiiStartInfo.FileName = lgsFileName;
-            gpiiStartInfo.Arguments = lgsArguments;
-            localGPIIProcess = Process.Start(gpiiStartInfo);
-        }
-
         static void Main(string[] args)
         {
             //MessageBox.Show("Starting up GPII Windows 8");
@@ -146,113 +134,7 @@ namespace GPII
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-
-        public void InitializeProximityDevice()
-        {
-            proximityDevice = Windows.Networking.Proximity.ProximityDevice.GetDefault();
-
-            if (proximityDevice != null)
-            {
-                proximityDevice.DeviceArrived += ProximityDeviceArrived;
-                proximityDevice.DeviceDeparted += ProximityDeviceDeparted;
-                proximityDevice.SubscribeForMessage("NDEF", messageReceivedHandler);
-                WriteMessageText("Proximity device initialized.\n");
-            }
-            else
-            {
-                WriteMessageText("Failed to initialized proximity device.\n");
-            }
-        }
-
-        public void gpiiLogin(string userToken)
-        {
-            var url = "http://localhost:8081/user/" + userToken + "/login";
-            WriteMessageText(url);
-            using (WebClient client = new WebClient())
-            {
-                string s = client.DownloadString(url);
-            }
-
-            applicationContext.LoginNotification();
-        }
-
-        public void gpiiLogout(string userToken)
-        {
-            var url = "http://localhost:8081/user/" + userToken + "/logout";
-            WriteMessageText(url);
-            using (WebClient client = new WebClient())
-            {
-                string s = client.DownloadString(url);
-            }
-
-            applicationContext.LogoutNotification();
-        }
-
-        public string readUserTokenFromTag(ProximityMessage message)
-        {
-            var dataReader = Windows.Storage.Streams.DataReader.FromBuffer(message.Data);
-            byte[] bytes = new byte[message.Data.Length];
-            dataReader.ReadBytes(bytes);
-            var data = Encoding.ASCII.GetString(bytes, 0, (int)message.Data.Length);
-            var userToken = data.Substring(7);
-            return userToken;
-        }
-
-        public void messageReceivedHandler(ProximityDevice device, ProximityMessage message)
-        {
-            DateTime thisTapTime = DateTime.UtcNow;
-            TimeSpan sinceLastTapIn = thisTapTime - lastTapTime;
-            WriteMessageText("Time since last tap (sec): " + sinceLastTapIn.TotalSeconds);
-            if (sinceLastTapIn.TotalSeconds < 3)
-            {
-                return;
-            }
-            else
-            {
-                lastTapTime = thisTapTime;
-            }
-            var userToken = readUserTokenFromTag(message);
-            if (loggedIn)
-            {
-                if (userToken == loggedInUser)
-                {
-                    WriteMessageText("Already logged in, logging out");
-                    loggedIn = false;
-                    loggedInUser = "";
-                    gpiiLogout(userToken);
-                }
-                else // a different user wants to login, so we will log them out
-                {    // first and then let the next person log in
-                    WriteMessageText("Logged in with different user, will log them out first.");
-                    gpiiLogout(loggedInUser);
-                    System.Threading.Thread.Sleep(1000);
-                    loggedIn = true;
-                    loggedInUser = userToken;
-                    gpiiLogin(userToken);
-                }    
-            }
-            else
-            {
-                loggedIn = true;
-                loggedInUser = userToken;
-                gpiiLogin(userToken);
-            }
-        }
-
-        public void ProximityDeviceArrived(Windows.Networking.Proximity.ProximityDevice device)
-        {
-            WriteMessageText("Proximate device arrived. id = " + device.DeviceId + "\n");
-            
-        }
-
-        public void ProximityDeviceDeparted(Windows.Networking.Proximity.ProximityDevice device)
-        {
-            WriteMessageText("Proximate device departed. id = " + device.DeviceId + "\n");
-        }
-
-        public void WriteMessageText(string message)
-        {
-            System.Console.WriteLine(message);
-        }
     }
+
+    
 }
