@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -120,12 +121,12 @@ namespace GPII
     {
         static void Main(string[] args)
         {
-            //MessageBox.Show("Starting up GPII Windows 8");
+            string lgsStartupDir = setupAppDataInstall();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             try
             {
-                var applicationContext = new GPIIApplicationContext(args);
+                var applicationContext = new GPIIApplicationContext(new string[] {lgsStartupDir, "node.exe", "lgs_driver.js"});
                 Application.Run(applicationContext);
             }
             catch (Exception ex)
@@ -134,7 +135,92 @@ namespace GPII
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+
+        /**
+         * Returns the full path to our user copy of the install in their AppData.
+         */
+        static string setupAppDataInstall()
+        {   
+            // TODO This needs to be dynamic, and trickily I *might* not be able to depend on the current
+            // working directory.. although I might be able to.  Need to check if our install location is
+            // actually getting put in the registry.
+            //string lgsInstallDir = "Z:\\shared_with_win7\\code\\library-gpii-system\\lgs-station";
+            string lgsInstallDir = "C:\\Program Files (x86)\\GPII\\lgs-station";
+            
+            string appData = Environment.GetEnvironmentVariable("APPDATA");
+            bool gpiiAppDataDir = Directory.Exists(appData+"\\gpii");
+            if (!gpiiAppDataDir)
+            {
+                Directory.CreateDirectory(appData + "\\gpii");
+            }
+            string lgsStationAppDataDir = appData+"\\gpii\\lgs-station";
+            if (!Directory.Exists(lgsStationAppDataDir))
+            {
+                DirectoryCopy(lgsInstallDir, lgsStationAppDataDir, true);
+            }
+            return lgsStationAppDataDir;
+        }
+
+        // https://msdn.microsoft.com/en-us/library/bb762914%28v=vs.110%29.aspx
+        public static void DirectoryCopy(string sourceDirName, string destDirName, bool copySubDirs)
+        {
+            // Get the subdirectories for the specified directory.
+            DirectoryInfo dir = new DirectoryInfo(sourceDirName);
+            DirectoryInfo[] dirs = dir.GetDirectories();
+
+            if (!dir.Exists)
+            {
+                throw new DirectoryNotFoundException(
+                    "Source directory does not exist or could not be found: "
+                    + sourceDirName);
+            }
+
+            // If the destination directory doesn't exist, create it. 
+            if (!Directory.Exists(destDirName))
+            {
+                Directory.CreateDirectory(destDirName);
+            }
+
+            // Get the files in the directory and copy them to the new location.
+            FileInfo[] files = dir.GetFiles();
+            foreach (FileInfo file in files)
+            {
+                string temppath = Path.Combine(destDirName, file.Name);
+                try { 
+                    file.CopyTo(temppath, false);
+                }
+                catch (PathTooLongException ptle)
+                {
+                    // There are a few files in some grunt module that end up with incredibly deep nested modules.
+                    // They all appear to be for testing.
+                }
+            }
+
+            // If copying subdirectories, copy them and their contents to new location. 
+            if (copySubDirs)
+            {
+                foreach (DirectoryInfo subdir in dirs)
+                {
+                    string temppath = Path.Combine(destDirName, subdir.Name);
+                    DirectoryCopy(subdir.FullName, temppath, copySubDirs);
+                }
+            }
+        }
+
+        /*
+        static void Main(string[] args)
+        {
+            System.Console.WriteLine("About to try NFC 3!");
+            GPIINFCListener nfc = new GPIINFCListener();
+            foreach (string reader in nfc.ListReaders()) {
+                System.Console.WriteLine(reader);
+            }
+
+            nfc.SelectDevice();
+            nfc.establishContext();
+            nfc.getGPIIToken();
+        }
+         */
     }
 
-    
 }
